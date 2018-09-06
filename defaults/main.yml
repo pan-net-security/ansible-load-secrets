@@ -1,0 +1,9 @@
+---
+# defaults file for roles/ansible-load-from-vault/
+als_secret_store: "{{ secret_store | d('') }}"
+als_vault_mount: "{{ vault_mount | d('') }}"
+als_vault_path: "{{ vault_path | d('') }}"
+als_fs_path: "/tmp"
+als_password_length: "{{ password_length|d(10) }}"
+disable_ansible_log: true
+als_debug: false

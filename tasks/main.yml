@@ -1,0 +1,23 @@
+---
+
+- name: debug vars_stored
+  debug:
+    var: vars_stored
+  when: als_debug
+
+- name: Create temporary directory
+  local_action:
+    module: tempfile
+    state: directory
+    suffix: "random"
+  register: tmpdir
+  run_once: true
+
+- include: "{{ als_secret_store }}.yml"
+
+- name: Delete temporary directory
+  local_action:
+    module: file
+    path: "{{ tmpdir.path }}"
+    state: absent
+  run_once: true

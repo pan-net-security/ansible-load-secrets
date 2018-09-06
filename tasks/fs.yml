@@ -1,0 +1,113 @@
+---
+
+- name: debug
+  debug:
+    msg: >
+      Loading var {{ item.var_name | default(item.var) }}
+      from path {{
+      (
+        ( als_fs_path +
+         '/' + ('hostsecrets/' if item.host is defined
+                               else (item.group | default (''))) +
+                               '/' + item.host | default('')
+        ) if (item.path is not defined) else (item.path)
+      ) +
+      '/' +
+      (item.var_name | default(item.var)) + '.' + item.key
+      }}
+  with_items: "{{ vars_stored }}"
+  when: als_debug and
+        (
+          vars_stored is defined and
+            (
+              item.host is not defined and
+              inventory_hostname in groups[item.group | default('all')]
+            ) or
+            (
+              item.host is defined and inventory_hostname == item.host
+            )
+        )
+  loop_control:
+    label: "{{ item if not disable_ansible_log
+                    else 'LOGGING DISABLED' }}"
+  no_log: "{{ disable_ansible_log }}"
+  delegate_to: localhost
+
+- name: Load values from filesystem
+  slurp:
+    path: "{{ (
+                 (
+                   als_fs_path +
+                   '/' + (
+                          'hostsecrets/' if item.host is defined else
+                          item.group | default ('')
+                         ) +
+                   '/' + item.host | default('')
+                 ) if item.path is not defined
+                 else
+                   item.path
+               ) +
+                 '/' + (item.var_name | default(item.var)) + '.' + item.key
+          | d('')
+      }}"
+  with_items: "{{ vars_stored }}"
+  register: fs_content
+  ignore_errors: true
+  when:
+    - vars_stored is defined
+    - |
+      (
+        item.host is not defined and
+        inventory_hostname in groups[item.group | default('all')]
+      )
+      or
+      (
+        item.host is defined and
+        inventory_hostname == item.host
+      )
+  delegate_to: localhost
+  no_log: "{{ disable_ansible_log }}"
+  loop_control:
+    label: "{{ vars_stored if not disable_ansible_log
+                           else 'LOGGING DISABLED' }}"
+
+- name: Set variables which could not be read
+  set_fact:
+    "{{ item.item.var }}": >-
+      {{
+        (
+          range(item.item.range_min | default(1000),
+                item.item.range_max | default(10000)) | random
+        ) if (
+               item.item.pin | default(false) and (item.failed | default(false))
+        ) else
+           (
+             lookup('password',tmpdir.path+'/'+
+                               item.item.var+
+                               (item.item.host|default(item.item.group | default('')))+
+                               ((' chars='+item.item.chars) if item.item.chars is defined else '')+
+                               ' length='+ item.item.length | default(als_password_length)
+                   )
+           ) if (
+                  item.failed | default(false) and
+                  item.item.password | default(false)
+           ) else
+                  item.content |default (hostvars[inventory_hostname][item.item.var]|default('')| b64encode) | b64decode | trim
+      }}
+  with_items:
+    - "{{ fs_content.results | default([]) }}"
+  # no_log: "{{ disable_ansible_log }}"
+  when:
+    - |
+      (
+        item.item.host is not defined and
+        inventory_hostname in groups[item.item.group | default('all')]
+      )
+      or
+      (
+        item.item.host is defined and
+        inventory_hostname == item.item.host
+      )
+  loop_control:
+    label: "{{ vars_stored if not disable_ansible_log else 'LOGGING DISABLED' }}"
+  delegate_to: localhost

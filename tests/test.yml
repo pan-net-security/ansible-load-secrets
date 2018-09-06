@@ -1,0 +1,303 @@
+---
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "test"
+          key: "test"
+  roles:
+    - role: "{{ playbook_dir }}/.."
+
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: "Test1: Simple secret without really loading anything"
+      fail:
+        msg: "test should be equal to 'test123', is {{ test }}"
+      when: "test != 'test123'"
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "test2"
+          key: "secret"  # pick value of /security/test/test2:key
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - name: "Test2: Simple variable loading"
+      fail:
+        msg: >
+          test2 value should be read from Vault and equal to 'test234', is
+          '{{ test2 }}'
+      when: "test2 != 'test234'"
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "test3"
+          key: "password"
+          password: true           # Generate new password
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - name: "Test3: Generate new password"
+      fail:
+        msg: >
+          test3 should be random string (is {{ test3 }}) and same on all hosts,
+          ({{
+          hostvars['host1']['test3'] !=
+          hostvars['host2']['test3'] !=
+          hostvars['host3']['test3'] !=
+          hostvars['host4']['test3']
+          }})
+      when:
+        - test3 != ''
+        - |
+          hostvars['host1']['test3'] !=
+          hostvars['host2']['test3'] !=
+          hostvars['host3']['test3'] !=
+          hostvars['host4']['test3']
+      run_once: true
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "test4"
+          key: "password"
+          host: "host3"
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - debug:
+        var: test4
+
+    - name: "Test4: Pick pre-set password"
+      fail:
+        msg: "test4 should be 'xxxxx' (is {{ test4 }})"
+      when: (
+              test4 != 'xxxxx' and inventory_hostname == 'host3'
+            ) or
+            (
+              test4 is defined and inventory_hostname != 'host3'
+            )
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "test5"
+          group: "subgroup1"
+          key: "password"
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - debug:
+        var: test5
+
+    - name: "Test5: Group password loading"
+      fail:
+        msg: "test5 should be 'teststring0' (is '{{ test5 }}')"
+      when: (
+              test5 != 'teststring0' and (inventory_hostname == 'host2' or
+                                   inventory_hostname == 'host4')
+            ) or
+            (
+              test5 is defined and (inventory_hostname == 'host1' or
+                                    inventory_hostname == 'host3')
+            )
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "test6"
+          key: "password"
+          password: true
+          host: "host3"        # Generate new password for only one host
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - debug: var=test6
+
+    - name: "Test6: Random password generation on one host only"
+      fail:
+        msg: "test6 should be random string (is {{ test6 }}) only on host3"
+      when: (
+              test6 is defined and (inventory_hostname == 'host1' or
+                                    inventory_hostname == 'host2' or
+                                    inventory_hostname == 'host4')
+            ) or
+            (
+              test6 is not defined and inventory_hostname == 'host3'
+            ) or
+            (
+              test6 == '' and inventory_hostname == 'host3'
+            )
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "test7"
+          key: "password"
+          password: true
+          group: 'subgroup1'     # Generate new password for one group only
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - debug:
+        var: test7
+
+    - name: "Test7: Password generation for a group"
+      fail:
+        msg: >
+          test7 should be random string (is {{ test7 }}) only on hosts
+          host2 and host4 (equal), undefined elsewhere
+      when: (
+              hostvars['host2']['test7'] != hostvars['host4']['test7']
+            ) or
+            (
+              test7 is defined and (
+                                     inventory_hostname == 'host1' or
+                                     inventory_hostname == 'host3')
+            )
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: a
+          key: "secret"
+          password: false
+          host: '{{ inventory_hostname }}'
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - debug:
+        var: a
+
+    - name: "Test8: Different pre-existing variable value for every host"
+      fail:
+        msg: >
+          a should be 'a' on host1,
+                      'b' on host2,
+                      'c' on host3,
+                      'd' on host4,
+                      is {{ a }} on {{ inventory_hostname }}
+      when: (
+              a != 'a' and inventory_hostname == 'host1'
+            ) or
+            (
+              a != 'b' and inventory_hostname == 'host2'
+            ) or
+            (
+              a != 'c' and inventory_hostname == 'host3'
+            ) or
+            (
+              a != 'd' and inventory_hostname == 'host4'
+            )
+
+- hosts: subgroup1:subgroup2
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "sgsecret"
+          key: "secret"
+          password: false
+          group: "{{ group_name }}"
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - debug:
+        var: sgsecret
+
+    - name: "Test9: Different pre-existing variable value for every host"
+      fail:
+        msg: >
+          sgsecret should be teststring1 (sg1) or
+                             teststring2 (sg2),
+                             is {{ sgsecret }}.
+      when: (
+              sgsecret != 'teststring1' and inventory_hostname == 'host2'
+            ) or
+            (
+              sgsecret != 'teststring1' and inventory_hostname == 'host4'
+            ) or
+            (
+              sgsecret != 'teststring2' and inventory_hostname == 'host1'
+            ) or
+            (
+              sgsecret != 'teststring2' and inventory_hostname == 'host3'
+            )
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "nonexistentsecret"
+          key: "secret"
+          password: false
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - name: "Test10: falsenexistentsecret should be ''"
+      fail:
+        msg: "Value of nonexistentsecret should be '' (empty string, defined)"
+      when: nonexistentsecret!='' or nonexistentsecret is not defined
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "arbitrary"
+          key: "whatever"
+          password: false
+          path: '/secret/absolutely/random/path'
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - name: "Test11: arbitrary should be 'teststring3', is '{{ arbitrary }}'"
+      fail:
+        msg: "Value of arbitrary should be 'teststring3'"
+      when: (arbitrary is not defined or arbitrary !='teststring3')
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "pin"
+          key: "pin"
+          pin: true
+          path: '/secret/pin'
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - name: "Test12: PIN should be a number between 1000 and 9999"
+      fail: msg="Value is {{ pin }}, should be 1000-9999"
+      when: ((pin is not defined) or (pin|int > 9999) or (pin|int < 1000))
+
+- hosts: all
+  gather_facts: false
+  vars:
+    - vars_stored:
+        - var: "pin2"
+          key: "pin"
+          pin: true
+          range_min: 99998
+          range_max: 99999
+          path: '/secret/pin2'
+  roles:
+    - role: "{{ playbook_dir }}/.."
+  tasks:
+    - name: "Test13: PIN2 should be a number equal to 99998"
+      fail:
+        msg: "Value is {{ pin2 }}, should be 99998"
+      when: (
+              pin2 is not defined
+            )
+            or
+            (
+              pin2|int!=99998
+            )

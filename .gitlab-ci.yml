@@ -1,0 +1,140 @@
+---
+image: <redacted>
+
+stages:
+  - test
+
+before_script:
+after_script:
+  - docker stop test{1..4}
+  - docker stop vault-dev
+  - docker rm test{1..4}
+  - docker rm vault-dev
+
+run_tests_vault:
+  stage: test
+  script:
+    - |
+      for i in {1..4}; do
+        docker rm test${i} || true
+      done
+    - docker rm vault-dev || true
+    - ssh-keygen -f tempkey -P ""
+    - PK=`base64 -w0 tempkey.pub`
+    - REG_URL=<redacted>:4567
+    - UBU_IMG=docker-images/docker-ubuntu-1604-dummy:16.04
+    - VAULT_IMG=vault:0.9.6
+    - |
+      for i in {1..4}; do \
+        docker run --name test$i \
+                   --env UBUNTU_SSH_PUBKEY=$PK \
+                   --detach \
+                   $REG_URL/$UBU_IMG
+      done
+    - |
+      docker run  --name vault-dev \
+                  --cap-add=IPC_LOCK \
+                  --env VAULT_DEV_ROOT_TOKEN_ID="blebleble" \
+                   --detach \
+                  $VAULT_IMG
+    - |
+      for i in {1..4}; do \
+        IP[$i]=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test$i)
+      done
+    - VAULT_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' vault-dev)
+    - cd tests
+    - |
+      cat > hosts << EOF
+      host1 ansible_ssh_host=${IP[1]}
+      host2 ansible_ssh_host=${IP[2]}
+      host3 ansible_ssh_host=${IP[3]}
+      host4 ansible_ssh_host=${IP[4]}
+      [all]
+      host1
+      host2
+      host3
+      host4
+      [subgroup1]
+      host2
+      host4
+      [subgroup2]
+      host1
+      host3
+      EOF
+    - cat hosts
+
+    - eval `ssh-agent`
+    - ssh-add ../tempkey
+    - echo "$VAULT_IP vault.sandbox.com vault" >> /etc/hosts
+    - export VAULT_ADDR=http://$VAULT_IP:8200/
+    - export VAULT_TOKEN="blebleble"
+    - unset http_proxy
+    - unset https_proxy
+    - |
+      until curl http://vault.sandbox.com:8200/; do
+        sleep 1
+      done
+    - |
+      vault write /secret/test/test2 secret="test234" || \
+      (docker inspect vault && false)
+    - vault write /secret/test/hostsecrets/host3/test4 password="xxxxx"
+    - vault write /secret/test/subgroup1/test5 password="teststring0"
+    - vault write /secret/test/hostsecrets/host1/a secret="a"
+    - vault write /secret/test/hostsecrets/host2/a secret="b"
+    - vault write /secret/test/hostsecrets/host3/a secret="c"
+    - vault write /secret/test/hostsecrets/host4/a secret="d"
+    - vault write /secret/test/subgroup1/sgsecret secret="teststring1"
+    - vault write /secret/test/subgroup2/sgsecret secret="teststring2"
+    - vault write /secret/absolutely/random/path/arbitrary whatever="teststring3"
+    - |
+      ansible-playbook --verbose \
+                       --user ubuntu \
+                       --inventory hosts \
+                       --extra-vars als_secret_store="vault" \
+                       --extra-vars als_vault_mount="secret" \
+                       --extra-vars als_vault_path="test" \
+                       test.yml
+
+run_tests_fs:
+  stage: test
+  script:
+    - cd tests
+    - |
+      cat > hosts << EOF
+      host1 ansible_ssh_host=1.2.3.4
+      host2 ansible_ssh_host=2.3.4.5
+      host3 ansible_ssh_host=3.4.5.6
+      host4 ansible_ssh_host=4.5.6.7
+      [all]
+      host1
+      host2
+      host3
+      host4
+      [subgroup1]
+      host2
+      host4
+      [subgroup2]
+      host1
+      host3
+      EOF
+    - mkdir -p /tmp/hostsecrets/host{1,2,3,4}/
+    - mkdir -p /tmp/subgroup{1,2}/
+    - mkdir -p /secret/absolutely/random/path/
+
+    - echo "test234" > /tmp/test2.secret
+    - echo "xxxxx" > /tmp/hostsecrets/host3/test4.password
+    - echo "teststring0" > /tmp/subgroup1/test5.password
+    - echo "a" > /tmp/hostsecrets/host1/a.secret
+    - echo "b" > /tmp/hostsecrets/host2/a.secret
+    - echo "c" > /tmp/hostsecrets/host3/a.secret
+    - echo "d" > /tmp/hostsecrets/host4/a.secret
+    - echo "teststring1" > /tmp/subgroup1/sgsecret.secret
+    - echo "teststring2" > /tmp/subgroup2/sgsecret.secret
+    - echo "teststring3" > /secret/absolutely/random/path/arbitrary.whatever
+    - |
+      ansible-playbook --verbose \
+                       --user ubuntu \
+                       --inventory hosts \
+                       --extra-vars als_secret_store="fs" \
+                       --extra-vars als_vault_path="/tmp" \
+                       test.yml
