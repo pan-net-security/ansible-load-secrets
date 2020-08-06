@@ -1,8 +1,8 @@
 # ansible-load-secrets
 
-Tries to load any kind of secrets directly into variables you specify in your source.
+role tries to load any kind of secrets directly into variables you specify in the `vars_stored`.
 
-Supports loading variable values from secrets stored in local filesystem or Hashicorp Vault.
+Supports loading variable values from secrets stored in local __filesystem__ `(secret_store: 'fs')` or from the instance of HashiCorp __Vault__ `(secret_store: 'vault')`.
 
 If your secret does not exist at the store, the variable WILL NOT BE SET (remains in original state - `undefined` or whatever you set it to previously).
 
@@ -10,11 +10,49 @@ If your secret does not exist at the store, the variable WILL NOT BE SET (remain
 
 Set `als_secret_store` either to `vault` or `fs`. Loading values from both sources is intentionally not supported.
 
-For vault source, specify `als_vault_mount` and `als_vault_path`.
+For `vault` source, specify mount point with `als_vault_mount` and path with `als_vault_path` variables.
 
-For fs source, specify `als_fs_path`. If not specified, `'/tmp'` will be used as default.
+For `fs` source, specify `als_fs_path`. If not specified, `'/tmp'` will be used as default.
 
 ## Sample plays
+
+### Hashicorp vault source
+
+Don't forget to specify `VAULT_ADDR` and `VAULT_TOKEN` env vars as you are used to when using Hashicorp Vault.
+
+If you ever run into:
+```
+Exception: HTTPSConnectionPool(host='vault.example.com', port=443): 
+Max retries exceeded with url: /v1/sys/seal-status (Caused by SSLError(
+SSLError(\"bad handshake: Error([('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')],)\",),))"
+```
+then define proper certification authority for Python Requests with `export REQUESTS_CA_BUNDLE=/etc/ssl/ca-certificates.crt`.
+
+```
+- hosts: all
+  vars:
+    - secret_store: 'vault'
+    - als_vault_mount: 'secrets'
+    # full path will be secrets/someproject/prod
+    - als_vault_path: 'someproject/prod'
+    - group: 'somehosts'
+    - vars_stored:
+      - var: 'secret1'
+        key: 'password'
+      - var: 'secret2'
+        key: 'someotherkey'
+      - var: 'secret3'
+        key: 'someotherkey'
+        token: '1234-5678-9012-3456'
+  roles:
+    - ansible-load-secrets
+```
+
+After this play, `{{ secret1 }}` will be picked from `{{ als_vault_mount }}/{{ als_vault_path }}/{{ group }}/secret1:password` and `{{ secret2 }}` will be picked from `{{ als_vault_mount }}/{{ als_vault_path }}/{{ group }}/secret2:someotherkey`.
+
+You can specify an empty `group`, but if you have read the previous paragraph you surely understand this well.
+
+`secret3` is loaded with a specific token (good for one-time usage).
 
 ### Filesystem source
 
@@ -46,35 +84,6 @@ You can use empty `group`, useful for loading vars for all hosts:
 ```
 
 After this play, `{{ secret1 }}` will be loaded from `{{ als_fs_path }}/secret1`, and `{{ secret2 }}` from `{{ als_fs_path }}/secret2` respectively.
-
-### Hashicorp vault source
-
-Don't forget to specify `VAULT_ADDR` and `VAULT_TOKEN` env vars as you are used to when using Hashicorp Vault.
-
-If you ever run into `Exception: HTTPSConnectionPool(host='vault.sec.in.pan-net.eu', port=443): Max retries exceeded with url: /v1/sys/seal-status (Caused by SSLError(SSLError(\"bad handshake: Error([('SSL routines', 'tls_process_server_certificate', 'certificate verify failed')],)\",),))"`, then do `export REQUESTS_CA_BUNDLE=/etc/ssl/ca-certificates.crt`.
-
-```
-- hosts: all
-  vars:
-    - secret_store: 'fs'
-    - group: 'somehosts'
-    - vars_stored:
-      - var: 'secret1'
-        key: 'password'
-      - var: 'secret2'
-        key: 'someotherkey'
-      - var: 'secret3'
-        key: 'someotherkey'
-        token: '1234-5678-9012-3456'
-  roles:
-    - ansible-load-secrets
-```
-
-After this play, `{{ secret1 }}` will be picked from `{{ als_vault_mount }}/{{ als_vault_path }}/{{ group }}/secret1:password` and `{{ secret2 }}` will be picked from `{{ als_vault_mount }}/{{ als_vault_path }}/{{ group }}/secret2:someotherkey`.
-
-You can specify an empty `group`, but if you have read the previous paragraph you surely understand this well.
-
-`secret3` is loaded with a specific token (good for one-time usage).
 
 ### Password generation
 
@@ -166,6 +175,5 @@ GPL
 
 ## Author Information
 
-Michal Medvecky
-
-Diogenes Santos de Jesus
+Michal Medvecky  
+Diogenes Santos de Jesus  
