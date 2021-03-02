@@ -12,6 +12,7 @@
     suffix: "random"
   register: tmpdir
   run_once: true
+  changed_when: false
 
 - include: "{{ als_secret_store }}.yml"
 
@@ -21,3 +22,4 @@
     path: "{{ tmpdir.path }}"
     state: absent
   run_once: true
+  changed_when: false
