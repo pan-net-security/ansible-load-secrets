@@ -96,7 +96,8 @@
                                item.item.var+
                                (item.item.host|default(item.item.group | default('')))+
                                ((' chars='+item.item.chars) if item.item.chars is defined else '')+
-                               ' length='+ item.item.length | default(als_password_length)
+                               ' length='+
+                               ((item.item.length | default(als_password_length)) | string)
                    )
            ) if (
                   'is not in vault' in item.msg | default('') and
@@ -119,4 +120,3 @@
   loop_control:
     label: "{{ vars_stored if not disable_ansible_log else 'LOGGING DISABLED' }}"
   delegate_to: localhost
-
